@@ -1,5 +1,6 @@
 const express = require('express');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const jwt = require('jsonwebtoken');
 const app = express();
 const cors = require('cors');
 require('dotenv').config()
@@ -28,6 +29,7 @@ async function run() {
         await client.connect();
 
         const menucollection = client.db('bistrodb').collection('menu')
+        const usercollection = client.db('bistrodb').collection('user')
         const reviewcollection = client.db('bistrodb').collection('review')
         const cartcollection = client.db('bistrodb').collection('cart')
 
@@ -38,6 +40,48 @@ async function run() {
         app.get('/review', async(req, res) => {
             const result =await reviewcollection.find().toArray()
             res.send(result)
+        })
+
+        // jwt related api's
+        app.post('/jwt', async(req, res)=>{
+            const user = req.body;
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '1h'})
+            res.send({token})
+        })
+
+        // user's api
+
+        app.get('/user', async(req, res)=>{
+            const result = await usercollection.find().toArray();
+            res.send(result)
+        })
+        app.post('/user', async(req, res)=>{
+            const newUser = req.body;
+            // check if user already exist using email as an unique entity
+            const query={email: newUser.email}
+            const existUser = await usercollection.findOne(query)
+            if(existUser){
+                return res.send({message:'user already exist', insertedId:null})
+            }
+            const result = await usercollection.insertOne(newUser);
+            res.send(result);
+        })
+        app.patch('/user/admin/:id', async(req, res)=>{
+            const id = req.params.id;
+            const filter = {_id: new ObjectId(id)};
+            const updatedDoc = {
+                $set:{
+                    role:'admin'
+                }
+            }
+            const result = await usercollection.updateOne(filter, updatedDoc);
+            res.send(result)
+        })
+        app.delete('/user/:id', async(req, res)=>{
+            const id = req.params.id;
+            const query = {_id: new ObjectId(id)};
+            const result= await usercollection.deleteOne(query);
+            res.send(result);
         })
         // cart api
 
@@ -52,7 +96,7 @@ async function run() {
             const result = await cartcollection.find(query).toArray();
             res.send(result);
         })
-        app.delete('/cart/:id', async(req, res)=>{
+        app.delete(`/cart/:id`, async(req, res)=>{
             const id = req.params.id;
             const query = {_id: new ObjectId(id)};
             const result = await cartcollection.deleteOne(query);
