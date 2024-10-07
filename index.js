@@ -33,72 +33,113 @@ async function run() {
         const reviewcollection = client.db('bistrodb').collection('review')
         const cartcollection = client.db('bistrodb').collection('cart')
 
-        app.get('/menu', async(req, res) => {
-            const result =await menucollection.find().toArray()
+        app.get('/menu', async (req, res) => {
+            const result = await menucollection.find().toArray()
             res.send(result)
         })
-        app.get('/review', async(req, res) => {
-            const result =await reviewcollection.find().toArray()
+        app.get('/review', async (req, res) => {
+            const result = await reviewcollection.find().toArray()
             res.send(result)
         })
 
         // jwt related api's
-        app.post('/jwt', async(req, res)=>{
+        app.post('/jwt', async (req, res) => {
             const user = req.body;
-            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '1h'})
-            res.send({token})
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' })
+            res.send({ token })
         })
 
+        // middleware
+        const verifyToken = (req, res, next) => {
+            console.log('inside verify token', req.headers.authorization)
+            if (!req.headers.authorization) {
+                return res.status(401).send({ message: 'forbidden access' })
+            }
+            const token = req.headers.authorization.split(' ')[1];
+            jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+                if (err) {
+                    return res.status(401).send({ message: 'forbidden access' })
+                }
+                req.decoded = decoded;
+                next();
+            })
+
+        }
+        const verifyAdmin = async(req, res, next) => {
+            const email = req.decoded.email;
+            const query = {email: email};
+            const user = await usercollection.findOne(query);
+            const isAdmin = user?.role === 'admin';
+            if(!isAdmin){
+                return res.status(401).send({message: 'illigal access'})
+            }
+            next();
+        }
         // user's api
 
-        app.get('/user', async(req, res)=>{
+        app.get('/user', verifyToken, verifyAdmin, async (req, res) => {
+
             const result = await usercollection.find().toArray();
             res.send(result)
         })
-        app.post('/user', async(req, res)=>{
+        app.get('/user/admin/:email', verifyToken, async (req, res) => {
+            const email = req.params.email;
+            if (email !== req.decoded.email) {
+                return res.status(401).send({ message: 'access forbidden' })
+            }
+            const query = { email: email }
+            const user = await usercollection.findOne(query);
+            const admin = false;
+            if (user) {
+                admin = user?.role === 'admin'
+            }
+            res.send({ admin })
+
+        })
+        app.post('/user', async (req, res) => {
             const newUser = req.body;
             // check if user already exist using email as an unique entity
-            const query={email: newUser.email}
+            const query = { email: newUser.email }
             const existUser = await usercollection.findOne(query)
-            if(existUser){
-                return res.send({message:'user already exist', insertedId:null})
+            if (existUser) {
+                return res.send({ message: 'user already exist', insertedId: null })
             }
             const result = await usercollection.insertOne(newUser);
             res.send(result);
         })
-        app.patch('/user/admin/:id', async(req, res)=>{
+        app.patch('/user/admin/:id', verifyToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
-            const filter = {_id: new ObjectId(id)};
+            const filter = { _id: new ObjectId(id) };
             const updatedDoc = {
-                $set:{
-                    role:'admin'
+                $set: {
+                    role: 'admin'
                 }
             }
             const result = await usercollection.updateOne(filter, updatedDoc);
             res.send(result)
         })
-        app.delete('/user/:id', async(req, res)=>{
+        app.delete('/user/:id', verifyToken,verifyAdmin, async (req, res) => {
             const id = req.params.id;
-            const query = {_id: new ObjectId(id)};
-            const result= await usercollection.deleteOne(query);
+            const query = { _id: new ObjectId(id) };
+            const result = await usercollection.deleteOne(query);
             res.send(result);
         })
         // cart api
 
-        app.post('/cart', async(req, res)=>{
+        app.post('/cart', async (req, res) => {
             const cartItem = req.body;
             const result = await cartcollection.insertOne(cartItem);
             res.send(result)
         })
-        app.get('/cart', async(req, res)=>{
+        app.get('/cart', async (req, res) => {
             const email = req.query.email;
-            const query = {email: email}
+            const query = { email: email }
             const result = await cartcollection.find(query).toArray();
             res.send(result);
         })
-        app.delete(`/cart/:id`, async(req, res)=>{
+        app.delete(`/cart/:id`, async (req, res) => {
             const id = req.params.id;
-            const query = {_id: new ObjectId(id)};
+            const query = { _id: new ObjectId(id) };
             const result = await cartcollection.deleteOne(query);
             res.send(result)
         })
