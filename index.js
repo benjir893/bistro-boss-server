@@ -33,24 +33,9 @@ async function run() {
         const reviewcollection = client.db('bistrodb').collection('review')
         const cartcollection = client.db('bistrodb').collection('cart')
 
-        app.get('/menu', async (req, res) => {
-            const result = await menucollection.find().toArray()
-            res.send(result)
-        })
-        app.get('/review', async (req, res) => {
-            const result = await reviewcollection.find().toArray()
-            res.send(result)
-        })
 
-        // jwt related api's
-        app.post('/jwt', async (req, res) => {
-            const user = req.body;
-            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' })
-            res.send({ token })
-        })
-
-        // middleware
-        const verifyToken = (req, res, next) => {
+           // middleware
+           const verifyToken = (req, res, next) => {
             console.log('inside verify token', req.headers.authorization)
             if (!req.headers.authorization) {
                 return res.status(401).send({ message: 'forbidden access' })
@@ -65,16 +50,52 @@ async function run() {
             })
 
         }
-        const verifyAdmin = async(req, res, next) => {
+        const verifyAdmin = async (req, res, next) => {
             const email = req.decoded.email;
-            const query = {email: email};
+            const query = { email: email };
             const user = await usercollection.findOne(query);
             const isAdmin = user?.role === 'admin';
-            if(!isAdmin){
-                return res.status(401).send({message: 'illigal access'})
+            if (!isAdmin) {
+                return res.status(401).send({ message: 'illigal access' })
             }
             next();
         }
+        
+        // menu api
+        app.get('/menu', async (req, res) => {
+            const result = await menucollection.find().toArray()
+            res.send(result)
+        })
+        app.post('/menu', verifyToken, verifyAdmin, async(req, res)=>{
+            const menu = req.body;
+            const result = await menucollection.insertOne(menu);
+            res.send(result)
+        })
+        app.delete('/menu/:id', verifyToken, verifyAdmin, async(req, res)=>{
+            const id = req.params.id;
+            const query = {_id: new ObjectId(id)}
+            const result = await menucollection.deleteOne(query);
+            res.send(result)
+        })
+        app.get('/menu/:id', async(req, res)=>{
+            const id = req.params.id;
+            const query = {_id: new ObjectId(id)};
+            const result = await menucollection.findOne(query)
+            res.send(result)
+        })
+        app.get('/review', async (req, res) => {
+            const result = await reviewcollection.find().toArray()
+            res.send(result)
+        })
+
+        // jwt related api's
+        app.post('/jwt', async (req, res) => {
+            const user = req.body;
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' })
+            res.send({ token })
+        })
+
+     
         // user's api
 
         app.get('/user', verifyToken, verifyAdmin, async (req, res) => {
@@ -89,9 +110,9 @@ async function run() {
             }
             const query = { email: email }
             const user = await usercollection.findOne(query);
-            const admin = false;
+            let admin = false;
             if (user) {
-                admin = user?.role === 'admin'
+                admin = user?.role === "admin"
             }
             res.send({ admin })
 
@@ -109,6 +130,13 @@ async function run() {
         })
         app.patch('/user/admin/:id', verifyToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
+            if (!ObjectId.isValid(id)) {
+                return res.status(400).send({ message: 'invalid format' })
+            }
+            /*
+        const query = { _id: new ObjectId(id) }; According to chatgpt 
+        in new updated version of mongodb no need to use new ObjectId(id)
+        can be used directly ObjectId(id). so let's try with that to avoied deprecated mark*/
             const filter = { _id: new ObjectId(id) };
             const updatedDoc = {
                 $set: {
@@ -118,8 +146,12 @@ async function run() {
             const result = await usercollection.updateOne(filter, updatedDoc);
             res.send(result)
         })
-        app.delete('/user/:id', verifyToken,verifyAdmin, async (req, res) => {
+        app.delete('/user/:id', verifyToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
+            /*
+               const query = { _id: new ObjectId(id) }; According to chatgpt 
+               in new updated version of mongodb no need to use new ObjectId(id)
+               can be used directly ObjectId(id). so let's try with that to avoied deprecated mark*/
             const query = { _id: new ObjectId(id) };
             const result = await usercollection.deleteOne(query);
             res.send(result);
@@ -139,6 +171,13 @@ async function run() {
         })
         app.delete(`/cart/:id`, async (req, res) => {
             const id = req.params.id;
+            if (!ObjectId.isValid(id)) {
+                return res.status(400).send({ message: 'Invalid ID format' });
+            }
+            /*
+            const query = { _id: new ObjectId(id) }; According to chatgpt 
+            in new updated version of mongodb no need to use new ObjectId(id)
+            can be used directly ObjectId(id). so let's try with that to avoied deprecated mark*/
             const query = { _id: new ObjectId(id) };
             const result = await cartcollection.deleteOne(query);
             res.send(result)
