@@ -7,7 +7,12 @@ require('dotenv').config()
 const port = process.env.PORT || 5000;
 
 //middleware
-app.use(cors());
+app.use(cors({
+    origin: ["http://localhost:5173",
+        "https://bistro-boss-65b5c.web.app",
+        "https://bistro-boss-65b5c.firebaseapp.com"],
+    Credential: true
+}));
 app.use(express.json())
 
 
@@ -23,6 +28,41 @@ const client = new MongoClient(uri, {
     }
 });
 
+// middleware
+const verifyToken = (req, res, next) => {
+    console.log('inside verify token', req.headers.authorization)
+    if (!req.headers.authorization) {
+        return res.status(401).send({ message: 'forbidden access' })
+    }
+    const token = req.headers.authorization.split(' ')[1];
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(401).send({ message: 'forbidden access' })
+        }
+        req.decoded = decoded;
+        next();
+    })
+
+}
+
+const cookieOption = {
+    httpOnly: true,
+    sameSite: process.env.NODE_ENV === "production"? "none" : "strict",
+    secure: process.env.NODE_ENV === "production"? true : false,
+}
+
+const verifyAdmin = async (req, res, next) => {
+    const email = req.decoded.email;
+    const query = { email: email };
+    const user = await usercollection.findOne(query);
+    const isAdmin = user?.role === 'admin';
+    if (!isAdmin) {
+        return res.status(401).send({ message: 'illigal access' })
+    }
+    next();
+}
+
+
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
@@ -34,55 +74,48 @@ async function run() {
         const cartcollection = client.db('bistrodb').collection('cart')
 
 
-           // middleware
-           const verifyToken = (req, res, next) => {
-            console.log('inside verify token', req.headers.authorization)
-            if (!req.headers.authorization) {
-                return res.status(401).send({ message: 'forbidden access' })
-            }
-            const token = req.headers.authorization.split(' ')[1];
-            jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-                if (err) {
-                    return res.status(401).send({ message: 'forbidden access' })
-                }
-                req.decoded = decoded;
-                next();
-            })
 
-        }
-        const verifyAdmin = async (req, res, next) => {
-            const email = req.decoded.email;
-            const query = { email: email };
-            const user = await usercollection.findOne(query);
-            const isAdmin = user?.role === 'admin';
-            if (!isAdmin) {
-                return res.status(401).send({ message: 'illigal access' })
-            }
-            next();
-        }
-        
         // menu api
         app.get('/menu', async (req, res) => {
             const result = await menucollection.find().toArray()
             res.send(result)
         })
-        app.post('/menu', verifyToken, verifyAdmin, async(req, res)=>{
+        app.get('/menu/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: id };
+            const result = await menucollection.findOne(query)
+            res.send(result)
+            console.log(result)
+        })
+        app.post('/menu', verifyToken, verifyAdmin, async (req, res) => {
             const menu = req.body;
             const result = await menucollection.insertOne(menu);
             res.send(result)
         })
-        app.delete('/menu/:id', verifyToken, verifyAdmin, async(req, res)=>{
+        app.patch('/menu/:id', async (req, res) => {
+            const item = req.body;
+            const id = req.params.id
+            const filter = { _id: id }
+            const updateDoc = {
+                $set: {
+                    name: item.name,
+                    recipe: item.recipe,
+                    category: item.category,
+                    price: item.price,
+                    image: item.image
+                }
+            }
+            const result = await menucollection.updateOne(filter, updateDoc);
+            res.send(result)
+
+        })
+        app.delete('/menu/:id', verifyToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
-            const query = {_id: new ObjectId(id)}
+            const query = { _id: id }
             const result = await menucollection.deleteOne(query);
             res.send(result)
         })
-        app.get('/menu/:id', async(req, res)=>{
-            const id = req.params.id;
-            const query = {_id: new ObjectId(id)};
-            const result = await menucollection.findOne(query)
-            res.send(result)
-        })
+
         app.get('/review', async (req, res) => {
             const result = await reviewcollection.find().toArray()
             res.send(result)
@@ -92,10 +125,13 @@ async function run() {
         app.post('/jwt', async (req, res) => {
             const user = req.body;
             const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' })
-            res.send({ token })
-        })
 
-     
+            res.send({ token })
+            // res.cookie("token", token, cookieOption).send({ success: true })
+                
+        });
+
+
         // user's api
 
         app.get('/user', verifyToken, verifyAdmin, async (req, res) => {
@@ -133,10 +169,6 @@ async function run() {
             if (!ObjectId.isValid(id)) {
                 return res.status(400).send({ message: 'invalid format' })
             }
-            /*
-        const query = { _id: new ObjectId(id) }; According to chatgpt 
-        in new updated version of mongodb no need to use new ObjectId(id)
-        can be used directly ObjectId(id). so let's try with that to avoied deprecated mark*/
             const filter = { _id: new ObjectId(id) };
             const updatedDoc = {
                 $set: {
@@ -148,10 +180,7 @@ async function run() {
         })
         app.delete('/user/:id', verifyToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
-            /*
-               const query = { _id: new ObjectId(id) }; According to chatgpt 
-               in new updated version of mongodb no need to use new ObjectId(id)
-               can be used directly ObjectId(id). so let's try with that to avoied deprecated mark*/
+
             const query = { _id: new ObjectId(id) };
             const result = await usercollection.deleteOne(query);
             res.send(result);
@@ -183,7 +212,7 @@ async function run() {
             res.send(result)
         })
         // Send a ping to confirm a successful connection
-        await client.db("admin").command({ ping: 1 });
+        // await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
